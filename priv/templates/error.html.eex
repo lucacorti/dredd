@@ -1,0 +1,19 @@
+<html>
+
+<head>
+  <title>Error - <%= @code %></title>
+  <style>
+  * {
+    font-family: sans-serif;
+  }
+  </style>
+</head>
+
+<body>
+
+<h1>Error</h1>
+<h2><%= @code %></h2>
+
+</body>
+
+</html>
