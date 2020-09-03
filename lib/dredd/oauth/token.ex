@@ -2,8 +2,6 @@ defmodule Dredd.OAuth.Token do
   @moduledoc """
   OAuth Token
   """
-  @derive {Jason.Encoder, only: [:access_token, :expires_in, :refresh_token, :token_type]}
-
   @type expire :: non_neg_integer()
   @type scope :: String.t()
   @type token :: String.t()
@@ -16,5 +14,6 @@ defmodule Dredd.OAuth.Token do
           token_type: type()
         }
   @enforce_keys [:access_token, :expires_in, :refresh_token]
+  @derive Jason.Encoder
   defstruct access_token: nil, expires_in: nil, refresh_token: nil, token_type: "bearer"
 end

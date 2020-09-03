@@ -1,13 +1,12 @@
 defprotocol Dredd.OAuth.Grant do
   @moduledoc "Behaviour for OAuth grants"
 
-  alias Dredd.OAuth.{Application, Client, Error, Token}
-  alias Dredd.Server
-  alias Plug.Conn
+  alias Dredd.{OAuth, Server}
+  alias OAuth.{Application, Client, Error, Token}
 
   @type t :: struct()
   @type attr :: atom()
-  @type params :: Conn.params()
+  @type params :: %{required(String.t()) => String.t()}
 
   @typedoc "Authorization Code"
   @type auth_code :: String.t()
