@@ -109,6 +109,10 @@ defmodule DreddTest do
 
           param_name when param_name in [:code_challenge, :code_challenge_method, :state] ->
             assert %Response{status: 200} = response
+            assert [{:ok, "text", "html", _}] = response
+              |> Response.fetch_header_values("content-type")
+              |> Enum.map(&Utils.content_type(&1))
+
 
           _param_name ->
             raise "Unmanaged request
