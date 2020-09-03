@@ -107,19 +107,21 @@ defmodule DreddTest do
           param_name when param_name in [:response_type] ->
             assert %Response{status: 302} = response
 
-          param_name when param_name in [:code_challenge, :code_challenge_method, :state] ->
-            assert %Response{status: 200} = response
-            assert [{:ok, "text", "html", _}] = response
-              |> Response.fetch_header_values("content-type")
-              |> Enum.map(&Utils.content_type(&1))
-
+            %{"error_code" => _value} =
+              response
+              |> Response.fetch_header_values("location")
+              |> List.first()
+              |> URI.parse()
+              |> Map.fetch!(:query)
+              |> Query.decode()
 
           _param_name ->
-            raise "Unmanaged request
-Removed: #{param_name}
-Request params: #{inspect(params)}
-Response: #{inspect(response)}
-"
+            assert %Response{status: 200} = response
+
+            assert [{:ok, "text", "html", _}] =
+                     response
+                     |> Response.fetch_header_values("content-type")
+                     |> Enum.map(&Utils.content_type(&1))
         end
       end
     end
