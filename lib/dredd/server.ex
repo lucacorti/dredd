@@ -11,21 +11,14 @@ defmodule Dredd.Server do
   @type password :: String.t()
   @type user_id :: String.t()
 
-  @callback authenticate(Client.t(), username(), password()) :: {:ok, user_id()} | {:error, any()}
+  @callback authenticate(Client.t(), username(), password()) ::
+              {:ok, user_id()} | {:error, any()}
 
-  @callback authorize(
-              Client.t(),
-              Grant.code_challenge(),
-              Grant.challenge_method(),
-              Application.redirect_uri()
-            ) :: {:ok, Grant.auth_code()} | {:error, :unauthorized_client | :invalid_scope}
+  @callback authorize(Grant.t(), Client.t()) ::
+              {:ok, Grant.auth_code()} | {:error, :unauthorized_client | :invalid_scope}
 
-  @callback grant(
-              Grant.auth_code(),
-              Grant.code_verifier(),
-              Application.redirect_uri()
-            ) ::
-              {:ok, Client.t(), Token.t()}
+  @callback token(Grant.t(), Client.t()) ::
+              {:ok, Token.t()}
               | {:error,
                  :invalid_grant
                  | :invalid_scope

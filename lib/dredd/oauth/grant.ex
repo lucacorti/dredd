@@ -1,22 +1,24 @@
-defmodule Dredd.OAuth.Grant do
+defprotocol Dredd.OAuth.Grant do
   @moduledoc "Behaviour for OAuth grants"
 
   alias Dredd.OAuth.{Application, Client, Error, Token}
   alias Dredd.Server
   alias Plug.Conn
 
-  @type t :: module()
-  @type auth_code :: String.t()
-  @type challenge_method :: String.t()
-  @type code_challenge :: String.t()
-  @type code_verifier :: String.t()
+  @type t :: struct()
+  @type attr :: atom()
   @type params :: Conn.params()
-  @type state :: String.t()
 
-  @callback authorize(Server.t(), Client.t(), params()) ::
-              {:ok, params()}
-              | {:error, Error.t(), Client.t(), Application.redirect_uri()}
-  @callback token(Server.t(), params()) ::
-              {:ok, Application.t(), Token.t()}
-              | {:error, Error.t()}
+  @typedoc "Authorization Code"
+  @type auth_code :: String.t()
+
+  @spec authorize(t(), Server.t(), Client.t(), params()) ::
+          {:ok, params()}
+          | {:error, Error.t(), Client.t(), Application.redirect_uri()}
+  def authorize(grant, server, client, params)
+
+  @spec token(t(), Server.t(), params()) ::
+          {:ok, Token.t()}
+          | {:error, Error.t()}
+  def token(grant, server, params)
 end

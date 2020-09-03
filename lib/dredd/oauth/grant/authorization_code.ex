@@ -2,48 +2,98 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
   @moduledoc """
   OAuth Authorization Code Grant
   """
-  alias Dredd.OAuth.{Client, Grant}
+  alias Dredd.OAuth.{Application, Client, Grant}
 
   import Dredd.Plug.Utils
 
-  @behaviour Grant
+  @typedoc "PKCE Code Challenge Method"
+  @type code_challenge_method :: String.t()
 
-  @impl Grant
-  def authorize(server, client, query) do
-    scopes = get_scopes(query)
+  @typedoc "PKCE Code Challenge"
+  @type code_challenge :: String.t()
 
-    with {:ok, challenge} <- fetch_param(query, "code_challenge"),
-         {:ok, method} <- fetch_param(query, "code_challenge_method"),
-         {:ok, state} <- fetch_param(query, "state"),
-         {:ok, redirect_uri} <- fetch_param(query, "redirect_uri"),
-         :ok <- Client.validate_scopes(client, scopes),
-         {:ok, auth_code} <- server.authorize(client, challenge, method, redirect_uri) do
-      {:ok, %{"auth_code" => auth_code, "state" => state}}
-    else
-      {:error, reason} ->
-        {:error, reason, client, get_param(query, "redirect_uri")}
+  @typedoc "PKCE Code Verifier"
+  @type code_verifier :: String.t()
+
+  @typedoc "Client State"
+  @type state :: String.t()
+
+  @typedoc "Authorization Code Grant"
+  @type t :: %__MODULE__{
+          code: Grant.auth_code(),
+          state: state(),
+          code_challenge: code_challenge(),
+          code_challenge_method: code_challenge_method(),
+          code_verifier: code_verifier(),
+          scopes: Application.scopes(),
+          redirect_uri: Application.redirect_uri()
+        }
+  defstruct code: nil,
+            code_challenge: nil,
+            code_challenge_method: nil,
+            code_verifier: nil,
+            redirect_uri: nil,
+            scopes: [],
+            state: nil
+
+  defimpl Grant do
+    alias Dredd.OAuth.Client
+
+    def authorize(authorization_code, server, client, params) do
+      scopes = get_scopes(params)
+
+      with {:ok, code_challenge} <- fetch_param(params, "code_challenge"),
+           {:ok, code_challenge_method} <- fetch_param(params, "code_challenge_method"),
+           {:ok, state} <- fetch_param(params, "state"),
+           {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
+           :ok <- Client.validate_scopes(client, scopes),
+           {:ok, auth_code} <-
+             server.authorize(
+               %{
+                 authorization_code
+                 | code_challenge: code_challenge,
+                   code_challenge_method: code_challenge_method,
+                   redirect_uri: redirect_uri,
+                   state: state,
+                   scopes: scopes
+               },
+               client
+             ) do
+        {:ok, %{"auth_code" => auth_code, "state" => state}}
+      else
+        {:error, reason} ->
+          {:error, reason, client, get_param(params, "redirect_uri")}
+      end
     end
-  end
 
-  defp get_scopes(params) do
-    params
-    |> get_param("scope", "")
-    |> String.trim()
-    |> String.split(" ")
-    |> Enum.reject(fn
-      "" -> true
-      _scope -> false
-    end)
-  end
+    def token(authorization_code, server, params) do
+      with {:ok, client_id} <- fetch_param(params, "client_id"),
+           {:ok, client} <- server.client(client_id),
+           {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
+           :ok <- Client.validate_redirect_uri(client, redirect_uri),
+           {:ok, code} <- fetch_param(params, "code"),
+           {:ok, code_verifier} <- fetch_param(params, "code_verifier") do
+        server.token(
+          %{
+            authorization_code
+            | code: code,
+              code_verifier: code_verifier,
+              redirect_uri: redirect_uri
+          },
+          client
+        )
+      end
+    end
 
-  @impl Grant
-  def token(server, query) do
-    with {:ok, code} <- fetch_param(query, "code"),
-         {:ok, code_verifier} <- fetch_param(query, "code_verifier"),
-         {:ok, redirect_uri} <- fetch_param(query, "redirect_uri"),
-         {:ok, client, token} <- server.grant(code, code_verifier, redirect_uri),
-         :ok <- Client.validate_redirect_uri(client, redirect_uri) do
-      {:ok, token}
+    defp get_scopes(params) do
+      params
+      |> get_param("scope", "")
+      |> String.trim()
+      |> String.split(" ")
+      |> Enum.reject(fn
+        "" -> true
+        _scope -> false
+      end)
     end
   end
 end

@@ -160,6 +160,7 @@ Pv//2GOE8xkVsLAYXHUbgc9YdCiI6wBvLg==
 end
 
 defmodule DreddTest.Server do
+  alias Dredd.OAuth.Grant.AuthorizationCode
   alias DreddTest.AuthCode
 
   import DreddTest.Helper
@@ -189,13 +190,22 @@ defmodule DreddTest.Server do
   def client(_client_id), do: {:error, :invalid_client_id}
 
   @impl Dredd.Server
-  def grant(auth_code, code_verifier, redirect_uri) do
-    with :ok <-
-           AuthCode.validate(test_client(), auth_code, code_verifier, redirect_uri),
-         do: {:ok, test_client(), test_token()}
+  def token(
+        %AuthorizationCode{code: code, code_verifier: verifier, redirect_uri: redirect_uri},
+        client
+      ) do
+    with :ok <- AuthCode.validate(client, code, verifier, redirect_uri),
+         do: {:ok, test_token()}
   end
 
   @impl Dredd.Server
-  def authorize(client, challenge, method, redirect_uri),
-    do: AuthCode.generate(client, challenge, method, redirect_uri)
+  def authorize(
+        %AuthorizationCode{
+          code_challenge: challenge,
+          code_challenge_method: method,
+          redirect_uri: redirect_uri
+        },
+        client
+      ),
+      do: AuthCode.generate(client, challenge, method, redirect_uri)
 end

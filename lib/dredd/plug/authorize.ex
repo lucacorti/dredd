@@ -98,7 +98,7 @@ defmodule Dredd.Plug.Authorize do
 
     with {:ok, client, redirect_uri} <- validate_client(server, params),
          {:ok, _grant} <- grant(client, params),
-           do: action(conn, server, client, redirect_uri, user_id)
+         do: action(conn, server, client, redirect_uri, user_id)
   end
 
   match "/", do: send_response(conn, :method_not_allowed, "text/plain", "")
@@ -161,7 +161,7 @@ defmodule Dredd.Plug.Authorize do
        )
        when not is_nil(user_id) do
     with {:ok, grant} <- grant(client, params),
-         {:ok, redirect_params} <- grant.authorize(server, client, params) do
+         {:ok, redirect_params} <- Grant.authorize(grant, server, client, params) do
       redirect(conn, redirect_uri, redirect_params)
     else
       {:error, reason} ->
@@ -192,7 +192,7 @@ defmodule Dredd.Plug.Authorize do
   end
 
   defp grant(_client, %{"response_type" => "code"}),
-    do: {:ok, AuthorizationCode}
+    do: {:ok, %AuthorizationCode{}}
 
   defp grant(client, params),
     do: {:error, :unsupported_response_type, client, get_param(params, "redirect_uri")}

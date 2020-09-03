@@ -98,14 +98,25 @@ defmodule DreddTest do
 
         assert {_param, params} = Keyword.pop(auth_code_authorize_params, param_name)
 
-        assert {:ok, %Response{status: status}} = request(uri, :GET, "/authorize", params)
+        assert {:ok, response} = request(uri, :GET, "/authorize", params)
 
-        expected_status = case param_name do
-          param_name when param_name in [:client_id, :redirect_uri] -> 400
-          _param_name -> 302
+        case param_name do
+          param_name when param_name in [:client_id, :redirect_uri] ->
+            assert %Response{status: 400} = response
+
+          param_name when param_name in [:response_type] ->
+            assert %Response{status: 302} = response
+
+          param_name when param_name in [:code_challenge, :code_challenge_method, :state] ->
+            assert %Response{status: 200} = response
+
+          _param_name ->
+            raise "Unmanaged request
+Removed: #{param_name}
+Request params: #{inspect(params)}
+Response: #{inspect(response)}
+"
         end
-        assert status == expected_status,
-               "Status: #{status} Removed: #{param_name} Request params: #{inspect(params)}"
       end
     end
 

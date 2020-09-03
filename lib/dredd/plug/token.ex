@@ -25,7 +25,7 @@ defmodule Dredd.Plug.Token do
     %Conn{private: %{server: server}, body_params: params} = conn
 
     with {:ok, grant} <- grant(params),
-         {:ok, token} <- grant.token(server, params) do
+         {:ok, token} <- Grant.token(grant, server, params) do
       send_response(conn, :ok, "application/json", token)
     else
       {:error, reason} ->
@@ -44,7 +44,7 @@ defmodule Dredd.Plug.Token do
   end
 
   defp grant(%{"grant_type" => "authorization_code"}),
-    do: {:ok, AuthorizationCode}
+    do: {:ok, %AuthorizationCode{}}
 
   defp grant(_params),
     do: {:error, :unsupported_grant_type}
