@@ -2,11 +2,6 @@
 
 <head>
   <title>Error - <%= @code %></title>
-  <style>
-  * {
-    font-family: sans-serif;
-  }
-  </style>
 </head>
 
 <body>

@@ -4,16 +4,13 @@ defmodule Dredd.Plug.Token do
   use Plug.ErrorHandler
   use Plug.Router
 
-  alias Dredd.OAuth.Grant
+  alias Dredd.OAuth.{Client, Grant}
   alias Grant.AuthorizationCode
   alias Plug.Conn
 
   import Dredd.Plug.Utils
 
   require Logger
-
-  @error_template "priv/templates/error.html.eex"
-  @external_resource @error_template
 
   plug Plug.Parsers,
     parsers: [:urlencoded]
@@ -25,11 +22,15 @@ defmodule Dredd.Plug.Token do
     %Conn{private: %{server: server}, body_params: params} = conn
 
     with {:ok, grant} <- grant(params),
-         {:ok, token} <- Grant.token(grant, server, params) do
-      send_response(conn, :ok, "application/json", token)
+         {:ok, client_id} <- fetch_param(params, "client_id"),
+         {:ok, client} <- server.client(client_id),
+         {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
+         :ok <- Client.validate_redirect_uri(client, redirect_uri),
+         {:ok, token} <- Grant.token(grant, server, client, params) do
+      send_token_response(conn, :ok, token)
     else
       {:error, reason} ->
-        send_response(conn, :bad_request, "application/json", %{"error" => reason})
+        send_token_response(conn, :bad_request, %{"error" => reason})
     end
   end
 
@@ -48,4 +49,11 @@ defmodule Dredd.Plug.Token do
 
   defp grant(_params),
     do: {:error, :unsupported_grant_type}
+
+  defp send_token_response(conn, status, params) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
+    |> send_response(status, "application/json", params)
+  end
 end

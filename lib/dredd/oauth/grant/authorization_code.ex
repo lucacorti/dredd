@@ -62,16 +62,13 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
         {:ok, %{"auth_code" => auth_code, "state" => state}}
       else
         {:error, reason} ->
-          {:error, reason, client, get_param(params, "redirect_uri")}
+          {:error, reason, client, Map.get(params, "redirect_uri")}
       end
     end
 
-    def token(authorization_code, server, params) do
-      with {:ok, client_id} <- fetch_param(params, "client_id"),
-           {:ok, client} <- server.client(client_id),
+    def token(authorization_code, server, client, params) do
+      with {:ok, code} <- fetch_param(params, "code"),
            {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
-           :ok <- Client.validate_redirect_uri(client, redirect_uri),
-           {:ok, code} <- fetch_param(params, "code"),
            {:ok, code_verifier} <- fetch_param(params, "code_verifier") do
         server.token(
           %{
@@ -87,13 +84,8 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
 
     defp get_scopes(params) do
       params
-      |> get_param("scope", "")
-      |> String.trim()
-      |> String.split(" ")
-      |> Enum.reject(fn
-        "" -> true
-        _scope -> false
-      end)
+      |> Map.get("scope", "")
+      |> String.split(" ", trim: true)
     end
   end
 end

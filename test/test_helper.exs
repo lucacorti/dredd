@@ -1,61 +1,22 @@
 ExUnit.start()
 
 defmodule DreddTest.Helper do
-  alias Ankh.HTTP.{Request, Response}
   alias Dredd.OAuth.{Application, Client, Token}
 
-  def parse_cookies(response) do
-    response
-    |> Response.fetch_header_values("set-cookie")
-    |> Enum.reduce([], fn set_cookie, cookies ->
-      cookie =
-        set_cookie
-        |> String.split(";")
-        |> List.first()
-
-      [cookie | cookies]
-    end)
-    |> Enum.reverse()
-    |> Enum.join(";")
-  end
-
-  def request(
-        uri,
-        method,
-        path,
-        query \\ %{},
-        headers \\ [],
-        body \\ nil,
-        options \\ [follow_redirects: false]
-      ) do
-    request =
-      uri
-      |> Request.from_uri()
-      |> Request.set_path("/oauth" <> path)
-      |> Request.set_method(method)
-      |> Request.set_query(query)
-      |> Request.put_headers(headers)
-      |> Request.set_body(body)
-      |> Request.put_options(options)
-
-    with {:ok, conn} <- Saigon.connect(uri),
-         {:ok, _conn, response} <- Saigon.request(conn, request) do
-      {:ok, Response.fetch_body(response)}
-    else
-      {:error, _conn, reason} ->
-        {:error, reason}
-    end
-  end
+  @alpha "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  @numeric "0123456789"
+  @alphanumeric @alpha <> String.downcase(@alpha) <> @numeric
 
   def test_client,
     do: %Client{
       id: "client_id",
       application: %Application{
-        name: "test app",
-        description: "Test application",
+        name: "Test application",
+        description: "A test application doing nothing really.",
         redirect_uris: [
           "https://mytest/app"
         ]
+        # scopes: ["read", "write"]
       }
     }
 
@@ -65,6 +26,22 @@ defmodule DreddTest.Helper do
       refresh_token: "test_refresh_token",
       expires_in: 86_400
     }
+
+  def random_str(length) do
+    @alphanumeric
+    |> String.split("", trim: true)
+    |> do_random_str(length)
+  end
+
+  defp do_random_str(lists, length) do
+    length
+    |> get_range()
+    |> Enum.reduce([], fn _, acc -> [Enum.random(lists) | acc] end)
+    |> Enum.join("")
+  end
+
+  defp get_range(length) when length > 1, do: 1..length
+  defp get_range(_length), do: [1]
 end
 
 defmodule DreddTest.AccessToken do
@@ -165,38 +142,22 @@ defmodule DreddTest.Server do
 
   import DreddTest.Helper
 
-  use Dredd.Server
+  use Dredd.Server,
+    name: "Test Server",
+    cookie: [
+      secret_key_base: random_str(120),
+      encryption_salt: random_str(120),
+      signing_salt: random_str(120)
+    ],
+    ssl: []
 
   @impl Dredd.Server
-  def authenticate(_client, _username, _password), do: {:ok, "1"}
-
-  @impl Dredd.Server
-  def secret_key_base,
-    do:
-      "NDzalAGwg3Phz8XYolvtHb5NIOI8KLmVfuWWjf0XQUzCgEN63CKYZSRFIr55gC9ppEBdtE7M06iVsF21mb2iPnyvTI4Ie7xYJUpX"
-
-  @impl Dredd.Server
-  def encryption_salt,
-    do:
-      "fI202rNW5dFQp1IK7eOYchEcq88jGDiXA391tjXzXRWO90Oi8fP5vFOIqo4WTuz8WvM3i0tLtyN08KrigoSn3PAtT7RWkdWtdyM0"
-
-  @impl Dredd.Server
-  def signing_salt,
-    do:
-      "NuaVhXMQ9zT2dGri9cMdEJSdn4DIO1rDHEBIcPHACCYTGSGioAOEkcAfXs8TynrWsqHLbCwPTg6gHg5d12xuwhVc3Ugc538B5zdg"
+  def authenticate(_client, "test_user", "test_password"), do: {:ok, "1"}
+  def authenticate(_client, _username, _password), do: {:error, :access_denied}
 
   @impl Dredd.Server
   def client("client_id"), do: {:ok, test_client()}
   def client(_client_id), do: {:error, :invalid_client_id}
-
-  @impl Dredd.Server
-  def token(
-        %AuthorizationCode{code: code, code_verifier: verifier, redirect_uri: redirect_uri},
-        client
-      ) do
-    with :ok <- AuthCode.validate(client, code, verifier, redirect_uri),
-         do: {:ok, test_token()}
-  end
 
   @impl Dredd.Server
   def authorize(
@@ -207,5 +168,18 @@ defmodule DreddTest.Server do
         },
         client
       ),
-      do: AuthCode.generate(client, challenge, method, redirect_uri)
+      do: {:ok, AuthCode.generate(client, challenge, method, redirect_uri)}
+
+  def authorize(_grant, _client), do: {:error, :invalid_response_type}
+
+  @impl Dredd.Server
+  def token(
+        %AuthorizationCode{code: code, code_verifier: verifier, redirect_uri: redirect_uri},
+        client
+      ) do
+    with :ok <- AuthCode.validate(client, code, verifier, redirect_uri),
+         do: {:ok, test_token()}
+  end
+
+  def token(_grant, _token), do: {:error, :invalid_grant}
 end

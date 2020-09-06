@@ -1,10 +1,11 @@
 defmodule DreddTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+  use Plug.Test
   doctest Dredd
 
-  alias Ankh.HTTP.Response
   alias DreddTest.{AuthCode, Server}
-  alias Plug.Conn.{Query, Utils}
+  alias Plug.Conn
+  alias Conn.{Query, Utils}
 
   import DreddTest.Helper
 
@@ -37,57 +38,45 @@ defmodule DreddTest do
   ]
 
   setup_all do
-    port = 8_000
-
-    with {:ok, pid} <- Plug.Cowboy.http(Server, [], port: port) do
-      %{
-        uri: URI.parse("http://localhost:#{port}"),
-        server: pid,
-        auth_code_authorize_params: @auth_code_authorize_params,
-        auth_code_token_params: @auth_code_token_params
-      }
-    end
+    %{
+      auth_code_authorize_params: @auth_code_authorize_params,
+      auth_code_token_params: @auth_code_token_params
+    }
   end
 
   describe "generic" do
-    test "server starts", %{server: server} do
-      assert is_pid(server)
+    test "404 on missing url" do
+      assert %Conn{status: 404} = :get |> request("/missing-path")
     end
 
-    test "404 on missing url", %{uri: uri} do
-      assert {:ok, %Response{status: 404}} = request(uri, :GET, "/missing-path")
+    test "authorize: 405 on invalid method" do
+      assert %Conn{status: 405} = :head |> request("/authorize")
     end
 
-    test "authorize: 405 on invalid method", %{uri: uri} do
-      assert {:ok, %Response{status: 405}} = request(uri, :HEAD, "/authorize")
+    test "authorize: 400 on missing query parameters" do
+      assert %Conn{status: 400} = :get |> request("/authorize")
     end
 
-    test "authorize: 400 on missing query parameters", %{uri: uri} do
-      assert {:ok, %Response{status: 400}} = request(uri, :GET, "/authorize")
+    test "authorize: 400 on invalid response_type" do
+      assert %Conn{status: 400} =
+               :get |> request("/authorize", %{response_type: "bad_response_type"})
     end
 
-    test "authorize: 400 on invalid response_type", %{uri: uri} do
-      assert {:ok, %Response{status: 400}} =
-               request(uri, :GET, "/authorize", %{response_type: "bad_response_type"})
+    test "token: 405 on invalid method" do
+      assert %Conn{status: 405} = :get |> request("/token")
     end
 
-    test "token: 405 on invalid method", %{uri: uri} do
-      assert {:ok, %Response{status: 405}} = request(uri, :GET, "/token")
+    test "token: 400 on missing query parameters" do
+      assert %Conn{status: 400} = :post |> request("/token")
     end
 
-    test "token: 400 on missing query parameters", %{uri: uri} do
-      assert {:ok, %Response{status: 400}} = request(uri, :POST, "/token")
-    end
-
-    test "token: 400 on invalid grant_type", %{uri: uri} do
-      assert {:ok, %Response{status: 400}} =
-               request(uri, :POST, "/token", %{grant_type: "bad_grant_type"})
+    test "token: 400 on invalid grant_type" do
+      assert %Conn{status: 400} = :post |> request("/token", %{grant_type: "bad_grant_type"})
     end
   end
 
   describe "authorization_code authorize" do
     test "error on one required parameter missing", %{
-      uri: uri,
       auth_code_authorize_params: auth_code_authorize_params
     } do
       for param <- auth_code_authorize_params do
@@ -98,36 +87,35 @@ defmodule DreddTest do
 
         assert {_param, params} = Keyword.pop(auth_code_authorize_params, param_name)
 
-        assert {:ok, response} = request(uri, :GET, "/authorize", params)
+        assert conn = :get |> request("/authorize", params)
 
         case param_name do
           param_name when param_name in [:client_id, :redirect_uri] ->
-            assert %Response{status: 400} = response
+            assert %Conn{status: 400} = conn
 
           param_name when param_name in [:response_type] ->
-            assert %Response{status: 302} = response
+            assert %Conn{status: 302} = conn
 
             %{"error_code" => _value} =
-              response
-              |> Response.fetch_header_values("location")
+              conn
+              |> get_resp_header("location")
               |> List.first()
               |> URI.parse()
               |> Map.fetch!(:query)
               |> Query.decode()
 
           _param_name ->
-            assert %Response{status: 200} = response
+            assert %Conn{status: 200} = conn
 
             assert [{:ok, "text", "html", _}] =
-                     response
-                     |> Response.fetch_header_values("content-type")
+                     conn
+                     |> get_resp_header("content-type")
                      |> Enum.map(&Utils.content_type(&1))
         end
       end
     end
 
     test "400 on only one parameter provided", %{
-      uri: uri,
       auth_code_authorize_params: auth_code_authorize_params
     } do
       for param <- auth_code_authorize_params do
@@ -138,32 +126,27 @@ defmodule DreddTest do
 
         {param, _params} = Keyword.pop(auth_code_authorize_params, param_name)
 
-        assert {:ok, %Response{status: 400}} =
-                 request(uri, :GET, "/authorize", [{param_name, param}]),
-               "Only parameter provided in request: #{inspect(param_name)}"
+        assert %Conn{status: 400} = :get |> request("/authorize", [{param_name, param}])
+        "Only parameter provided in request: #{inspect(param_name)}"
       end
     end
 
     test "400 on bad client id", %{
-      uri: uri,
       auth_code_authorize_params: auth_code_authorize_params
     } do
       params = Keyword.replace!(auth_code_authorize_params, :client_id, "bad_client_id")
-      assert {:ok, %Response{status: 400}} = request(uri, :GET, "/authorize", params)
+      assert %Conn{status: 400} = :get |> request("/authorize", params)
     end
 
     test "200 on correct request", %{
-      uri: uri,
       auth_code_authorize_params: auth_code_authorize_params
     } do
-      assert {:ok, %Response{status: 200} = response} =
-               request(uri, :GET, "/authorize", auth_code_authorize_params)
+      assert %Conn{status: 200} = :get |> request("/authorize", auth_code_authorize_params)
     end
   end
 
   describe "authorization_code token" do
     test "200 on correct request", %{
-      uri: uri,
       auth_code_token_params: auth_code_token_params
     } do
       data =
@@ -171,20 +154,24 @@ defmodule DreddTest do
         |> Enum.into(%{})
         |> Query.encode()
 
-      assert {:ok, %Response{status: 200} = response} =
-               request(
-                 uri,
-                 :POST,
-                 "/token",
-                 %{},
-                 [{"content-type", "application/x-www-form-urlencoded"}],
-                 data
-               )
+      assert %Conn{status: 200} =
+               conn =
+               :post
+               |> request("/token", data, [{"content-type", "application/x-www-form-urlencoded"}])
 
       assert [{:ok, "application", "json", _}] =
-               response
-               |> Response.fetch_header_values("content-type")
+               conn
+               |> get_resp_header("content-type")
                |> Enum.map(&Utils.content_type(&1))
     end
+  end
+
+  def request(method, path, params \\ "", headers \\ []) do
+    conn = conn(method, "https://www.example.com/oauth" <> path, params)
+
+    headers
+    |> Enum.reduce(conn, fn {key, value}, conn -> put_req_header(conn, key, value) end)
+    |> Server.call([])
+    |> fetch_query_params([])
   end
 end

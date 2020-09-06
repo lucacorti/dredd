@@ -9,14 +9,16 @@ defmodule Dredd.Plug.Authorize do
   alias Plug.{Conn, CSRFProtection}
 
   import Dredd.Plug.Utils
-  import Plug.Conn, only: [fetch_session: 2, put_session: 3]
+
+  import Plug.Conn,
+    only: [delete_session: 2, fetch_query_params: 2, fetch_session: 2, put_session: 3]
 
   require Logger
 
-  @authorize_template "priv/templates/authorize/success.html.eex"
+  @authorize_template "#{List.to_string(:code.priv_dir(:dredd))}/templates/authorize.html.eex"
   @external_resource @authorize_template
 
-  defmodule Session do
+  defmodule AuthorizeSession do
     @moduledoc false
 
     alias Plug.Session
@@ -24,65 +26,52 @@ defmodule Dredd.Plug.Authorize do
 
     def init(opts), do: opts
 
-    def call(%Conn{private: %{server: server}} = conn, opts) do
-      store_opts =
-        Enum.map([:secret_key_base, :encryption_salt, :signing_salt], &get_option(server, &1))
+    def call(
+          %Conn{host: host, request_path: path, private: %{server: server, cookie: cookie}} =
+            conn,
+          opts
+        ) do
+      key =
+        server
+        |> Module.split()
+        |> Enum.map(&String.downcase/1)
+        |> Enum.join("_")
 
       options =
         opts
-        |> Keyword.merge(store_opts)
-        |> Keyword.merge(store: COOKIE, key: "_session")
+        |> Keyword.merge(cookie)
+        |> Keyword.merge(
+          store: COOKIE,
+          key: "_#{key}_session",
+          http_only: true,
+          domain: host,
+          path: path,
+          secure: true
+        )
         |> Session.init()
 
       Session.call(conn, options)
-    end
-
-    defp get_option(server, option) do
-      case apply(server, option, []) do
-        value when not is_nil(value) ->
-          {option, value}
-
-        _ ->
-          raise "#{__MODULE__}: Required option #{option} missing"
-      end
     end
   end
 
   plug Plug.Parsers,
     parsers: [:urlencoded],
-    pass: ["text/html"]
+    pass: ["application/x-www-form-urlencoded", "text/html"]
 
-  plug Session
+  plug AuthorizeSession
   plug :fetch_session
   plug CSRFProtection
+  plug :fetch_query_params
 
   plug :match
   plug :dispatch
 
   get "/" do
-    %Conn{private: %{server: server}, query_params: params} = conn
-    user_id = Conn.get_session(conn, :user_id)
+    %Conn{query_params: params, private: %{server: server}} = conn
 
-    with {:ok,
-          %Client{
-            application: %Application{name: name, description: description} = application
-          } = client, _redirect_uri} <- validate_client(server, params),
+    with {:ok, client, _redirect_uri} <- validate_client(server, params),
          {:ok, _grant} <- grant(client, params) do
-      send_response(
-        conn,
-        :ok,
-        "text/html",
-        EEx.eval_file(
-          server.template(application) || @authorize_template,
-          assigns: [
-            name: name,
-            description: description,
-            scopes: [],
-            user_id: user_id,
-            csrf_token: CSRFProtection.get_csrf_token()
-          ]
-        )
-      )
+      render_auth_page(conn, client, :ok)
     else
       {:error, reason} ->
         render_error(conn, reason)
@@ -98,7 +87,7 @@ defmodule Dredd.Plug.Authorize do
 
     with {:ok, client, redirect_uri} <- validate_client(server, params),
          {:ok, _grant} <- grant(client, params),
-         do: action(conn, server, client, redirect_uri, user_id)
+         do: action(conn, server, client, redirect_uri, not is_nil(user_id))
   end
 
   match "/", do: send_response(conn, :method_not_allowed, "text/plain", "")
@@ -118,37 +107,26 @@ defmodule Dredd.Plug.Authorize do
   defp action(
          %Conn{
            body_params: %{
-             "action" => "authenticate",
+             "action" => "login",
              "username" => username,
              "password" => password
            }
          } = conn,
          server,
-         %Client{application: %Application{name: name, description: description} = application} =
-           client,
+         client,
          _redirect_uri,
-         user_id
-       )
-       when is_nil(user_id) do
-    with {:ok, user_id} <- server.authenticate(client, username, password) do
-      CSRFProtection.delete_csrf_token()
+         false = _authenticated
+       ) do
+    case server.authenticate(client, username, password) do
+      {:ok, user_id} ->
+        CSRFProtection.delete_csrf_token()
 
-      conn
-      |> put_session(:user_id, user_id)
-      |> send_response(
-        :ok,
-        "text/html",
-        EEx.eval_file(
-          server.template(application) || @authorize_template,
-          assigns: [
-            name: name,
-            description: description,
-            scopes: [],
-            user_id: user_id,
-            csrf_token: CSRFProtection.get_csrf_token()
-          ]
-        )
-      )
+        conn
+        |> put_session(:user_id, user_id)
+        |> render_auth_page(client, :ok)
+
+      {:error, _reason} ->
+        render_auth_page(conn, client, :unauthorized, error: true)
     end
   end
 
@@ -157,9 +135,8 @@ defmodule Dredd.Plug.Authorize do
          server,
          client,
          redirect_uri,
-         user_id
-       )
-       when not is_nil(user_id) do
+         true = _authenticated
+       ) do
     with {:ok, grant} <- grant(client, params),
          {:ok, redirect_params} <- Grant.authorize(grant, server, client, params) do
       redirect(conn, redirect_uri, redirect_params)
@@ -177,14 +154,33 @@ defmodule Dredd.Plug.Authorize do
          _server,
          _client,
          redirect_uri,
-         user_id
-       )
-       when not is_nil(user_id) do
+         _authenticated
+       ) do
     redirect(conn, redirect_uri, %{"error_code" => :access_denied})
   end
 
-  defp action(conn, _server, _client, _redirect_uri, _user_id),
+  defp action(
+         %Conn{body_params: %{"action" => "logout"}} = conn,
+         _server,
+         client,
+         _redirect_uri,
+         true = _authenticated
+       ) do
+    conn
+    |> delete_session(:user_id)
+    |> render_auth_page(client, :ok)
+  end
+
+  defp action(conn, _server, _client, _redirect_uri, _authenticated),
     do: render_error(conn, :access_denied)
+
+  defp handle_errors(%Conn{request_path: path, query_params: params} = conn, %{
+         reason: %CSRFProtection.InvalidCSRFTokenError{}
+       }) do
+    conn = fetch_query_params(conn, [])
+
+    redirect(conn, path, params)
+  end
 
   defp handle_errors(conn, error) do
     Logger.error(fn -> "Error handling request: #{inspect(error)}" end)
@@ -195,5 +191,41 @@ defmodule Dredd.Plug.Authorize do
     do: {:ok, %AuthorizationCode{}}
 
   defp grant(client, params),
-    do: {:error, :unsupported_response_type, client, get_param(params, "redirect_uri")}
+    do: {:error, :unsupported_response_type, client, Map.get(params, "redirect_uri")}
+
+  defp render_auth_page(
+         %Conn{
+           host: host,
+           request_path: path,
+           private: %{server_name: server_name, static_dir: static_dir}
+         } = conn,
+         %Client{
+           application: %Application{name: name, description: description, scopes: scopes}
+         },
+         status,
+         assigns \\ []
+       ) do
+    user_id = Conn.get_session(conn, :user_id)
+
+    send_response(
+      conn,
+      status,
+      "text/html",
+      EEx.eval_file(
+        @authorize_template,
+        assigns:
+          [error: false]
+          |> Keyword.merge(assigns)
+          |> Keyword.merge(
+            server_name: server_name,
+            name: name,
+            description: description,
+            scopes: scopes,
+            authenticated: not is_nil(user_id),
+            csrf_token: CSRFProtection.get_csrf_token_for(host <> path),
+            static_dir: static_dir
+          )
+      )
+    )
+  end
 end

@@ -16,8 +16,8 @@ defprotocol Dredd.OAuth.Grant do
           | {:error, Error.t(), Client.t(), Application.redirect_uri()}
   def authorize(grant, server, client, params)
 
-  @spec token(t(), Server.t(), params()) ::
+  @spec token(t(), Server.t(), Client.t(), params()) ::
           {:ok, Token.t()}
           | {:error, Error.t()}
-  def token(grant, server, params)
+  def token(grant, server, client, params)
 end

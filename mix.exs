@@ -10,7 +10,7 @@ defmodule Dredd.MixProject do
       deps: deps(),
       dialyzer: [
         plt_add_deps: :apps_direct,
-        plt_add_apps: [:eex, :jose, :telemetry],
+        plt_add_apps: [:eex, :telemetry],
         ignore_warnings: ".dialyzer.ignore-warnings"
       ]
     ]
@@ -31,9 +31,7 @@ defmodule Dredd.MixProject do
       {:plug, "~> 1.0"},
       {:credo, "~> 1.0", only: [:dev], runtime: false},
       {:dialyxir, "~> 1.0", only: [:dev], runtime: false},
-      {:joken, "~> 2.0", only: [:test]},
-      {:plug_cowboy, "~> 2.0", only: [:test]},
-      {:saigon, github: "dottori-it/saigon", tag: "v0.3.1", only: [:test]}
+      {:joken, "~> 2.0", only: [:test]}
     ]
   end
 end

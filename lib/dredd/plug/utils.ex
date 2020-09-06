@@ -14,22 +14,20 @@ defmodule Dredd.Plug.Utils do
 
   @type content_type :: String.t()
 
-  @error_template "priv/templates/error.html.eex"
+  @error_template "#{List.to_string(:code.priv_dir(:dredd))}/templates/error.html.eex"
   @external_resource @error_template
 
-  @spec fetch_param(Conn.params(), String.t()) :: {:ok, String.t()} | {:error, :invalid_request}
-  def fetch_param(params, param) do
+  @spec fetch_param(Conn.params(), String.t(), Error.t()) ::
+          {:ok, String.t()} | {:error, :invalid_request}
+  def fetch_param(params, param, reason \\ :invalid_request) do
     case Map.fetch(params, param) do
       {:ok, value} ->
         {:ok, value}
 
       :error ->
-        {:error, :invalid_request}
+        {:error, reason}
     end
   end
-
-  @spec get_param(Conn.params(), String.t(), any()) :: any()
-  def get_param(params, param, default \\ nil), do: Map.get(params, param, default)
 
   @spec redirect(Conn.t(), String.t(), Conn.query_params()) :: Conn.t()
   def redirect(conn, redirect_uri, query_params) do
@@ -62,8 +60,6 @@ defmodule Dredd.Plug.Utils do
            encode(content_type, data) do
       conn
       |> put_resp_content_type(content_type)
-      |> put_resp_header("cache-control", "no-store")
-      |> put_resp_header("pragma", "no-cache")
       |> send_resp(status, data)
       |> halt()
     else
