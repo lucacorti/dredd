@@ -1,0 +1,85 @@
+<html>
+
+<head>
+  <title><%= @name %> - <%= unless @authenticated, do: "Login", else: "Authorize" %></title>
+  <link rel="stylesheet" href="<%= @static_dir %>/style.css">
+  <link rel="icon" href="<%= @static_dir %>/favicon.png" type="image/png" />
+</head>
+
+<body class="page">
+
+  <header class="page-header">
+  <h1><%= @server_name %></h1>
+  <%= if @authenticated do %>
+    <form method="POST">
+      <input type="hidden" name="_csrf_token" value="<%= @csrf_token %>"/>
+      <input type="hidden" name="action" value="logout"/>
+      <button type="submit" class="button logout-button">Logout</button>
+    </form>
+  <% end %>
+  </header>
+
+  <section class="page-content">
+    <h2><%= @name %></h2>
+    <p><%= @description %></p>
+
+    <h3>is requesting access to your account on <%= @server_name %>.</h3>
+
+    <%= if @authenticated do %>
+      <%= unless @scopes == [] do %>
+        <p><b><%= @name %></b> will be granted access to:</p>
+
+        <ul>
+        <%= for scope <- @scopes do %>
+          <li><%= scope %></li>
+        <% end %>
+        </ul>
+      <% end %>
+
+      <form method="POST">
+        <input type="hidden" name="_csrf_token" value="<%= @csrf_token %>"/>
+        <input type="hidden" name="action" value="allow"/>
+        <button type="submit" class="button allow-button">Allow</button>
+      </form>
+
+      <form method="POST">
+        <input type="hidden" name="_csrf_token" value="<%= @csrf_token %>"/>
+        <input type="hidden" name="action" value="deny"/>
+        <p>or <button type="submit" class="button back-button">go back</button> to <%= @name %>.</p>
+      </form>
+    <% else %>
+      <form method="POST">
+        <input type="hidden" name="_csrf_token" value="<%= @csrf_token %>"/>
+        <input type="hidden" name="action" value="login"/>
+        <p>
+        <%= unless @error do %>
+          Please login to <b><%= @server_name %></b> to verify your identity.
+        <% else %>
+          <span class="error">Authentication failed</span>
+        <% end %>
+        </p>
+        <div>
+          <input type="text" name="username" placeholder="Username" />
+        </div>
+        <div>
+          <input type="password" name="password" placeholder="Password" />
+        </div>
+
+        <button type="submit" class="button login-button">Login</button>
+      </form>
+
+      <form method="POST">
+        <input type="hidden" name="_csrf_token" value="<%= @csrf_token %>"/>
+        <input type="hidden" name="action" value="deny"/>
+        <p>or <button type="submit" class="button back-button">go back</button> to <%= @name %>.</p>
+      </form>
+
+    <% end %>
+  </section>
+
+  <footer class="page-footer">
+    <h4><%= @server_name %></h4>
+  </footer>
+</body>
+
+</html>
