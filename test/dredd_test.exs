@@ -6,29 +6,25 @@ defmodule DreddTest do
   alias Plug.Conn
   alias Conn.{Query, Utils}
 
-  @client_id "client_id"
-  @redirect_uri "https://mytest/app"
   @code_verifier :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
   @code_challenge_method "S256"
   @code_challenge :sha256 |> :crypto.hash(@code_verifier) |> Base.encode64(padding: false)
-  @auth_code "good_auth_code"
-  @state :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
 
   @auth_code_authorize_params [
     response_type: "code",
-    client_id: @client_id,
+    client_id: "test_client",
     code_challenge: @code_challenge,
     code_challenge_method: @code_challenge_method,
-    redirect_uri: @redirect_uri,
-    state: @state
+    redirect_uri: "https://mytest/app",
+    state: :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
   ]
 
   @auth_code_token_params [
     grant_type: "authorization_code",
-    client_id: @client_id,
-    redirect_uri: @redirect_uri,
+    client_id: "test_client",
+    redirect_uri: "https://mytest/app",
     code_verifier: @code_verifier,
-    code: @auth_code
+    code: "test_auth_code"
   ]
 
   def code_challenge, do: @code_challenge
@@ -52,11 +48,11 @@ defmodule DreddTest do
     def authenticate(_client, _username, _password), do: {:error, :access_denied}
 
     @impl Dredd.Server
-    def client("client_id") do
+    def client("test_client") do
       {
         :ok,
         %Client{
-          id: "client_id",
+          id: "test_client",
           application: %Application{
             name: "Test application",
             description: "A test application doing nothing really.",
@@ -73,17 +69,17 @@ defmodule DreddTest do
 
     @impl Dredd.Server
     def authorize(%AuthorizationCode{} = grant, _client),
-      do: {:ok, %{grant | code: "good_auth_code"}}
+      do: {:ok, %{grant | code: "test_auth_code"}}
 
     def authorize(_grant, _client), do: {:error, :invalid_response_type}
 
     @impl Dredd.Server
-    def prepare(%AuthorizationCode{code: "good_auth_code"} = grant, _client),
+    def prepare(%AuthorizationCode{code: "test_auth_code"} = grant, _client),
       do:
         {:ok,
          %{
            grant
-           | client_id: "client_id",
+           | client_id: "test_client",
              redirect_uri: "https://mytest/app",
              code_challenge: DreddTest.code_challenge(),
              code_challenge_method: DreddTest.code_challenge_method()
@@ -92,7 +88,7 @@ defmodule DreddTest do
     def prepare(_grant, _client), do: {:error, :invalid_grant}
 
     @impl Dredd.Server
-    def token(%AuthorizationCode{code: "good_auth_code"}, _client) do
+    def token(%AuthorizationCode{code: "test_auth_code"}, _client) do
       {
         :ok,
         %Token{
