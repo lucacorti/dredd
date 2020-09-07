@@ -51,12 +51,12 @@ defmodule Dredd.Plug.Utils do
     location =
       redirect_uri
       |> URI.parse()
-      |> struct(query: Query.encode(query_params))
+      |> struct(query: Query.encode(query_params), fragment: "_")
       |> URI.to_string()
 
     conn
     |> put_resp_header("location", location)
-    |> send_resp(:found, "")
+    |> send_resp(:see_other, "")
     |> halt()
   end
 

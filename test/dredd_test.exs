@@ -153,7 +153,7 @@ defmodule DreddTest do
             assert %Conn{status: 400} = conn
 
           param_name when param_name in [:response_type] ->
-            assert %Conn{status: 302} = conn
+            assert %Conn{status: 303} = conn
 
             assert %{"error" => _value} = get_redirect_query_params(conn)
 
@@ -195,19 +195,19 @@ defmodule DreddTest do
       assert %Conn{status: 400} = :get |> request("/authorize", params)
     end
 
-    test "302 unsupported_response_type on invalid response type", %{
+    test "303 unsupported_response_type on invalid response type", %{
       auth_code_authorize_params: auth_code_authorize_params
     } do
       params = Keyword.replace!(auth_code_authorize_params, :response_type, "bad_response_type")
-      assert %Conn{status: 302} = conn = :get |> request("/authorize", params)
+      assert %Conn{status: 303} = conn = :get |> request("/authorize", params)
       assert %{"error" => "unsupported_response_type"} = get_redirect_query_params(conn)
     end
 
-    test "302 invalid_scope on invalid scopes", %{
+    test "303 invalid_scope on invalid scopes", %{
       auth_code_authorize_params: auth_code_authorize_params
     } do
       params = Keyword.put(auth_code_authorize_params, :scope, "a b")
-      assert %Conn{status: 302} = conn = :get |> request("/authorize", params)
+      assert %Conn{status: 303} = conn = :get |> request("/authorize", params)
       assert %{"error" => "invalid_scope"} = get_redirect_query_params(conn)
     end
 
