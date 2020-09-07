@@ -4,7 +4,7 @@ defmodule Dredd.Plug.Token do
   use Plug.ErrorHandler
   use Plug.Router
 
-  alias Dredd.OAuth.{Client, Grant}
+  alias Dredd.OAuth.Grant
   alias Grant.AuthorizationCode
   alias Plug.Conn
 
@@ -21,11 +21,8 @@ defmodule Dredd.Plug.Token do
   post "/" do
     %Conn{private: %{server: server}, body_params: params} = conn
 
-    with {:ok, grant} <- grant(params),
-         {:ok, client_id} <- fetch_param(params, "client_id"),
-         {:ok, client} <- server.client(client_id),
-         {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
-         :ok <- Client.validate_redirect_uri(client, redirect_uri),
+    with {:ok, client} <- validate_client(server, params),
+         {:ok, grant} <- grant(params),
          {:ok, token} <- Grant.token(grant, server, client, params) do
       send_token_response(conn, :ok, token)
     else

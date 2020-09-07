@@ -6,6 +6,34 @@ defmodule DreddTest do
   alias Plug.Conn
   alias Conn.{Query, Utils}
 
+  @client_id "client_id"
+  @redirect_uri "https://mytest/app"
+  @code_verifier :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
+  @code_challenge_method "S256"
+  @code_challenge :sha256 |> :crypto.hash(@code_verifier) |> Base.encode64(padding: false)
+  @auth_code "good_auth_code"
+  @state :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
+
+  @auth_code_authorize_params [
+    response_type: "code",
+    client_id: @client_id,
+    code_challenge: @code_challenge,
+    code_challenge_method: @code_challenge_method,
+    redirect_uri: @redirect_uri,
+    state: @state
+  ]
+
+  @auth_code_token_params [
+    grant_type: "authorization_code",
+    client_id: @client_id,
+    redirect_uri: @redirect_uri,
+    code_verifier: @code_verifier,
+    code: @auth_code
+  ]
+
+  def code_challenge, do: @code_challenge
+  def code_challenge_method, do: @code_challenge_method
+
   defmodule Server do
     alias Dredd.OAuth.{Application, Client, Grant, Token}
     alias Grant.AuthorizationCode
@@ -50,6 +78,20 @@ defmodule DreddTest do
     def authorize(_grant, _client), do: {:error, :invalid_response_type}
 
     @impl Dredd.Server
+    def prepare(%AuthorizationCode{code: "good_auth_code"} = grant, _client),
+      do:
+        {:ok,
+         %{
+           grant
+           | client_id: "client_id",
+             redirect_uri: "https://mytest/app",
+             code_challenge: DreddTest.code_challenge(),
+             code_challenge_method: DreddTest.code_challenge_method()
+         }}
+
+    def prepare(_grant, _client), do: {:error, :invalid_grant}
+
+    @impl Dredd.Server
     def token(%AuthorizationCode{code: "good_auth_code"}, _client) do
       {
         :ok,
@@ -65,32 +107,9 @@ defmodule DreddTest do
     def token(_grant, _token), do: {:error, :invalid_grant}
   end
 
-  @client_id "client_id"
-  @redirect_uri "https://mytest/app"
-  @code_verifier :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
-  @code_challenge_method "S256"
-  @code_challenge :sha256 |> :crypto.hash(@code_verifier) |> Base.encode64(padding: false)
-
-  @auth_code "good_auth_code"
-
-  @auth_code_authorize_params [
-    response_type: "code",
-    client_id: @client_id,
-    code_challenge: @code_challenge,
-    code_challenge_method: @code_challenge_method,
-    redirect_uri: @redirect_uri,
-    state: :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
-  ]
-
-  @auth_code_token_params [
-    grant_type: "authorization_code",
-    client_id: @client_id,
-    redirect_uri: @redirect_uri,
-    code_verifier: @code_verifier,
-    code: @auth_code
-  ]
-
   setup_all do
+    Plug.Cowboy.http(Server, [], port: 8000)
+
     %{
       auth_code_authorize_params: @auth_code_authorize_params,
       auth_code_token_params: @auth_code_token_params
@@ -110,21 +129,12 @@ defmodule DreddTest do
       assert %Conn{status: 400} = :get |> request("/authorize")
     end
 
-    test "authorize: 400 on invalid response_type" do
-      assert %Conn{status: 400} =
-               :get |> request("/authorize", %{response_type: "bad_response_type"})
-    end
-
     test "token: 405 on invalid method" do
       assert %Conn{status: 405} = :get |> request("/token")
     end
 
     test "token: 400 on missing query parameters" do
       assert %Conn{status: 400} = :post |> request("/token")
-    end
-
-    test "token: 400 on invalid grant_type" do
-      assert %Conn{status: 400} = :post |> request("/token", %{grant_type: "bad_grant_type"})
     end
   end
 
@@ -149,21 +159,12 @@ defmodule DreddTest do
           param_name when param_name in [:response_type] ->
             assert %Conn{status: 302} = conn
 
-            %{"error_code" => _value} =
-              conn
-              |> get_resp_header("location")
-              |> List.first()
-              |> URI.parse()
-              |> Map.fetch!(:query)
-              |> Query.decode()
+            assert %{"error" => _value} = get_redirect_query_params(conn)
 
           _param_name ->
             assert %Conn{status: 200} = conn
 
-            assert [{:ok, "text", "html", _}] =
-                     conn
-                     |> get_resp_header("content-type")
-                     |> Enum.map(&Utils.content_type/1)
+            assert [{:ok, "text", "html", _}] = get_resp_content_type(conn)
         end
       end
     end
@@ -184,11 +185,34 @@ defmodule DreddTest do
       end
     end
 
-    test "400 on bad client id", %{
+    test "400 on invalid client_id", %{
       auth_code_authorize_params: auth_code_authorize_params
     } do
       params = Keyword.replace!(auth_code_authorize_params, :client_id, "bad_client_id")
       assert %Conn{status: 400} = :get |> request("/authorize", params)
+    end
+
+    test "400 on invalid redirect_uri id", %{
+      auth_code_authorize_params: auth_code_authorize_params
+    } do
+      params = Keyword.replace!(auth_code_authorize_params, :redirect_uri, "bad_redirect_uri")
+      assert %Conn{status: 400} = :get |> request("/authorize", params)
+    end
+
+    test "302 unsupported_response_type on invalid response type", %{
+      auth_code_authorize_params: auth_code_authorize_params
+    } do
+      params = Keyword.replace!(auth_code_authorize_params, :response_type, "bad_response_type")
+      assert %Conn{status: 302} = conn = :get |> request("/authorize", params)
+      assert %{"error" => "unsupported_response_type"} = get_redirect_query_params(conn)
+    end
+
+    test "302 invalid_scope on invalid scopes", %{
+      auth_code_authorize_params: auth_code_authorize_params
+    } do
+      params = Keyword.put(auth_code_authorize_params, :scope, "a b")
+      assert %Conn{status: 302} = conn = :get |> request("/authorize", params)
+      assert %{"error" => "invalid_scope"} = get_redirect_query_params(conn)
     end
 
     test "200 on correct request", %{
@@ -209,22 +233,35 @@ defmodule DreddTest do
 
       assert %Conn{status: 200} =
                conn =
-               :post
-               |> request("/token", data, [{"content-type", "application/x-www-form-urlencoded"}])
+               request(:post, "/token", data, [
+                 {"content-type", "application/x-www-form-urlencoded"}
+               ])
 
-      assert [{:ok, "application", "json", _}] =
-               conn
-               |> get_resp_header("content-type")
-               |> Enum.map(&Utils.content_type(&1))
+      assert [{:ok, "application", "json", _}] = get_resp_content_type(conn)
     end
   end
 
-  def request(method, path, params \\ "", headers \\ []) do
+  defp request(method, path, params \\ "", headers \\ []) do
     conn = conn(method, "https://www.example.com/oauth" <> path, params)
 
     headers
     |> Enum.reduce(conn, fn {key, value}, conn -> put_req_header(conn, key, value) end)
     |> Server.call([])
     |> fetch_query_params([])
+  end
+
+  defp get_redirect_query_params(conn) do
+    conn
+    |> get_resp_header("location")
+    |> List.first()
+    |> URI.parse()
+    |> Map.get(:query, %{})
+    |> Query.decode()
+  end
+
+  defp get_resp_content_type(conn) do
+    conn
+    |> get_resp_header("content-type")
+    |> Enum.map(&Utils.content_type/1)
   end
 end

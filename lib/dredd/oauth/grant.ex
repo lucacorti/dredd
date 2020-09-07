@@ -2,7 +2,7 @@ defprotocol Dredd.OAuth.Grant do
   @moduledoc "Behaviour for OAuth grants"
 
   alias Dredd.{OAuth, Server}
-  alias OAuth.{Application, Client, Error, Token}
+  alias OAuth.{Client, Error, Token}
 
   @type t :: struct()
   @type attr :: atom()
@@ -13,7 +13,7 @@ defprotocol Dredd.OAuth.Grant do
 
   @spec authorize(t(), Server.t(), Client.t(), params()) ::
           {:ok, params()}
-          | {:error, Error.t(), Client.t(), Application.redirect_uri()}
+          | {:error, Error.t()}
   def authorize(grant, server, client, params)
 
   @spec token(t(), Server.t(), Client.t(), params()) ::

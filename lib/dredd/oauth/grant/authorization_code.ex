@@ -12,81 +12,111 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
   @typedoc "PKCE Code Challenge"
   @type code_challenge :: String.t()
 
-  @typedoc "PKCE Code Verifier"
-  @type code_verifier :: String.t()
-
-  @typedoc "Client State"
-  @type state :: String.t()
-
   @typedoc "Authorization Code Grant"
   @type t :: %__MODULE__{
+          client_id: Client.id(),
           code: Grant.auth_code(),
-          state: state(),
           code_challenge: code_challenge(),
           code_challenge_method: code_challenge_method(),
-          code_verifier: code_verifier(),
-          scopes: Application.scopes(),
+          scope: Application.scope(),
           redirect_uri: Application.redirect_uri()
         }
-  defstruct code: nil,
+  defstruct client_id: nil,
+            code: nil,
             code_challenge: nil,
             code_challenge_method: nil,
-            code_verifier: nil,
             redirect_uri: nil,
-            scopes: [],
-            state: nil
+            scope: nil
 
   defimpl Grant do
-    alias Dredd.OAuth.{Client, Grant}
     alias Dredd.OAuth.Grant.AuthorizationCode
 
     def authorize(authorization_code, server, client, params) do
-      scopes = get_scopes(params)
-
-      with {:ok, code_challenge} <- fetch_param(params, "code_challenge"),
-           {:ok, code_challenge_method} <- fetch_param(params, "code_challenge_method"),
-           {:ok, state} <- fetch_param(params, "state"),
-           {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
-           :ok <- Client.validate_scopes(client, scopes),
-           {:ok, %AuthorizationCode{code: code}} <-
+      with {:ok, %AuthorizationCode{code: code}} <-
              server.authorize(
                %{
                  authorization_code
-                 | code_challenge: code_challenge,
-                   code_challenge_method: code_challenge_method,
-                   redirect_uri: redirect_uri,
-                   state: state,
-                   scopes: scopes
+                 | client_id: Map.get(params, "client_id"),
+                   code_challenge: Map.get(params, "code_challenge"),
+                   code_challenge_method: Map.get(params, "code_challenge_method"),
+                   redirect_uri: Map.get(params, "redirect_uri"),
+                   scope: Map.get(params, "scope")
                },
                client
              ) do
-        {:ok, %{"code" => code, "state" => state}}
-      else
-        {:error, reason} ->
-          {:error, reason, client, Map.get(params, "redirect_uri")}
+        case Map.get(params, "state") do
+          nil ->
+            {:ok, %{"code" => code}}
+
+          state ->
+            {:ok, %{"code" => code, "state" => state}}
+        end
       end
     end
 
     def token(authorization_code, server, client, params) do
       with {:ok, code} <- fetch_param(params, "code"),
-           {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
-           {:ok, code_verifier} <- fetch_param(params, "code_verifier") do
-        server.token(
-          %{
-            authorization_code
-            | code: code,
-              code_verifier: code_verifier,
-              redirect_uri: redirect_uri
-          },
-          client
-        )
+           {:ok, authorization_code} <-
+             server.prepare(%{authorization_code | code: code}, client),
+           {:ok, authorization_code} <- check_params(authorization_code, params) do
+        server.token(authorization_code, client)
       end
     end
 
-    defp get_scopes(params) do
-      params
-      |> Map.get("scope", "")
-      |> String.split(" ", trim: true)
+    defp check_params(authorization_code, params) do
+      client_id = Map.get(params, "client_id")
+      code_verifier = Map.get(params, "code_verifier")
+      redirect_uri = Map.get(params, "redirect_uri")
+
+      with {:ok, authorization_code} <- check_client_id(authorization_code, client_id),
+           {:ok, authorization_code} <- check_redirect_uri(authorization_code, redirect_uri),
+           {:ok, authorization_code} <- check_pkce_challenge(authorization_code, code_verifier) do
+        {:ok, authorization_code}
+      end
     end
+
+    defp check_client_id(
+           %AuthorizationCode{client_id: client_id} = authorization_code,
+           client_id
+         ),
+         do: {:ok, authorization_code}
+
+    defp check_client_id(_authorization_code, _client_id), do: {:error, :invalid_client_id}
+
+    defp check_redirect_uri(
+           %AuthorizationCode{redirect_uri: redirect_uri} = authorization_code,
+           redirect_uri
+         ),
+         do: {:ok, authorization_code}
+
+    defp check_redirect_uri(_authorization_code, _redirect_uri),
+      do: {:error, :invalid_redirect_uri}
+
+    defp check_pkce_challenge(
+           %AuthorizationCode{
+             code_challenge: nil,
+             code_challenge_method: nil
+           } = grant,
+           nil
+         ),
+         do: {:ok, grant}
+
+    defp check_pkce_challenge(
+           %AuthorizationCode{
+             code_challenge: challenge,
+             code_challenge_method: "S256"
+           } = grant,
+           verifier
+         ) do
+      :sha256
+      |> :crypto.hash(verifier)
+      |> Base.encode64(padding: false)
+      |> case do
+        ^challenge -> {:ok, grant}
+        _ -> {:error, :invalid_grant}
+      end
+    end
+
+    defp check_pkce_challenge(_authorization_code, _verifier), do: {:error, :invalid_grant}
   end
 end

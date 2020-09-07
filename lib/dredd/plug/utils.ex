@@ -3,7 +3,8 @@ defmodule Dredd.Plug.Utils do
   Utilities for Dredd Plug
   """
 
-  alias Dredd.OAuth.Error
+  alias Dredd.{OAuth, Server}
+  alias OAuth.{Client, Error}
   alias Plug.Conn
   alias Plug.Conn.Query
 
@@ -16,6 +17,22 @@ defmodule Dredd.Plug.Utils do
 
   @error_template "#{List.to_string(:code.priv_dir(:dredd))}/templates/error.html.eex"
   @external_resource @error_template
+
+  @spec validate_client(Server.t(), Conn.params()) ::
+          {:ok, Client.t()}
+          | {:error, :invalid_client_id | :invalid_redirect_uri | :invalid_scope}
+  def validate_client(server, params) do
+    scope = Map.get(params, "scope", "")
+    client_id = Map.get(params, "client_id")
+    redirect_uri = Map.get(params, "redirect_uri")
+
+    with {:ok, client} <- server.client(client_id),
+         :ok <- Client.validate_client_id(client, client_id),
+         :ok <- Client.validate_redirect_uri(client, redirect_uri),
+         :ok <- Client.validate_scope(client, scope) do
+      {:ok, client}
+    end
+  end
 
   @spec fetch_param(Conn.params(), String.t(), Error.t()) ::
           {:ok, String.t()} | {:error, :invalid_request}

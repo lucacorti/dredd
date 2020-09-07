@@ -27,12 +27,14 @@ defmodule Dredd.OAuth.Client do
     end)
   end
 
-  @spec validate_scopes(t(), Application.scopes()) :: :ok | {:error, :invalid_scopes}
-  def validate_scopes(
+  @spec validate_scope(t(), String.t()) :: :ok | {:error, :invalid_scope}
+  def validate_scope(
         %__MODULE__{application: %Application{scopes: application_scopes}},
-        scopes
+        scope
       ) do
-    Enum.reduce_while(scopes, :ok, fn
+    scope
+    |> String.split(" ", trim: true)
+    |> Enum.reduce_while(:ok, fn
       scope, _acc ->
         if scope in application_scopes do
           {:cont, :ok}
