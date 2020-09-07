@@ -15,5 +15,5 @@ defmodule Dredd.OAuth.Token do
         }
   @enforce_keys [:access_token, :expires_in, :refresh_token]
   @derive Jason.Encoder
-  defstruct access_token: nil, expires_in: nil, refresh_token: nil, token_type: "bearer"
+  defstruct access_token: nil, expires_in: nil, refresh_token: nil, token_type: "Bearer"
 end

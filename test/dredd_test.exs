@@ -3,33 +3,88 @@ defmodule DreddTest do
   use Plug.Test
   doctest Dredd
 
-  alias DreddTest.Server
   alias Plug.Conn
   alias Conn.{Query, Utils}
 
-  import DreddTest.Helper
+  defmodule Server do
+    alias Dredd.OAuth.{Application, Client, Grant, Token}
+    alias Grant.AuthorizationCode
 
-  @test_client test_client()
+    use Dredd.Server,
+      name: "Test Server",
+      cookie: [
+        secret_key_base: :crypto.strong_rand_bytes(90) |> Base.encode64(padding: false),
+        encryption_salt: :crypto.strong_rand_bytes(90) |> Base.encode64(padding: false),
+        signing_salt: :crypto.strong_rand_bytes(90) |> Base.encode64(padding: false)
+      ],
+      ssl: []
+
+    @impl Dredd.Server
+    def authenticate(_client, "test_user", "test_password"), do: {:ok, "1"}
+    def authenticate(_client, _username, _password), do: {:error, :access_denied}
+
+    @impl Dredd.Server
+    def client("client_id") do
+      {
+        :ok,
+        %Client{
+          id: "client_id",
+          application: %Application{
+            name: "Test application",
+            description: "A test application doing nothing really.",
+            redirect_uris: [
+              "https://mytest/app"
+            ],
+            scopes: ["read", "write"]
+          }
+        }
+      }
+    end
+
+    def client(_client_id), do: {:error, :invalid_client_id}
+
+    @impl Dredd.Server
+    def authorize(%AuthorizationCode{} = grant, _client),
+      do: {:ok, %{grant | code: "good_auth_code"}}
+
+    def authorize(_grant, _client), do: {:error, :invalid_response_type}
+
+    @impl Dredd.Server
+    def token(%AuthorizationCode{code: "good_auth_code"}, _client) do
+      {
+        :ok,
+        %Token{
+          access_token: "test_access_token",
+          refresh_token: "test_refresh_token",
+          expires_in: 86_400
+        }
+      }
+    end
+
+    def token(%AuthorizationCode{}, _client), do: {:error, :access_denied}
+    def token(_grant, _token), do: {:error, :invalid_grant}
+  end
+
+  @client_id "client_id"
   @redirect_uri "https://mytest/app"
-  @code_verifier "well-formed-client-verifier-string-for-testing"
-
+  @code_verifier :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
   @code_challenge_method "S256"
-  @code_challenge :sha256 |> :crypto.hash(@code_verifier) |> Base.encode64()
+  @code_challenge :sha256 |> :crypto.hash(@code_verifier) |> Base.encode64(padding: false)
 
   @auth_code "good_auth_code"
 
   @auth_code_authorize_params [
     response_type: "code",
-    client_id: @test_client.id,
+    client_id: @client_id,
     code_challenge: @code_challenge,
     code_challenge_method: @code_challenge_method,
     redirect_uri: @redirect_uri,
-    state: "some_state"
+    state: :crypto.strong_rand_bytes(32) |> Base.encode64(padding: false)
   ]
 
   @auth_code_token_params [
     grant_type: "authorization_code",
-    client_id: @test_client.id,
+    client_id: @client_id,
     redirect_uri: @redirect_uri,
     code_verifier: @code_verifier,
     code: @auth_code
@@ -108,7 +163,7 @@ defmodule DreddTest do
             assert [{:ok, "text", "html", _}] =
                      conn
                      |> get_resp_header("content-type")
-                     |> Enum.map(&Utils.content_type(&1))
+                     |> Enum.map(&Utils.content_type/1)
         end
       end
     end

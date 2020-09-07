@@ -37,7 +37,8 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
             state: nil
 
   defimpl Grant do
-    alias Dredd.OAuth.Client
+    alias Dredd.OAuth.{Client, Grant}
+    alias Dredd.OAuth.Grant.AuthorizationCode
 
     def authorize(authorization_code, server, client, params) do
       scopes = get_scopes(params)
@@ -47,7 +48,7 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
            {:ok, state} <- fetch_param(params, "state"),
            {:ok, redirect_uri} <- fetch_param(params, "redirect_uri"),
            :ok <- Client.validate_scopes(client, scopes),
-           {:ok, auth_code} <-
+           {:ok, %AuthorizationCode{code: code}} <-
              server.authorize(
                %{
                  authorization_code
@@ -59,7 +60,7 @@ defmodule Dredd.OAuth.Grant.AuthorizationCode do
                },
                client
              ) do
-        {:ok, %{"auth_code" => auth_code, "state" => state}}
+        {:ok, %{"code" => code, "state" => state}}
       else
         {:error, reason} ->
           {:error, reason, client, Map.get(params, "redirect_uri")}
