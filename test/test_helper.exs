@@ -44,101 +44,8 @@ defmodule DreddTest.Helper do
   defp get_range(_length), do: [1]
 end
 
-defmodule DreddTest.AccessToken do
-  alias Joken.{Config, Signer}
-
-  use Config
-
-  @key "-----BEGIN EC PRIVATE KEY-----
-MHcCAQEEIAx1PPWN8kop0mhViuH+Q41wrfbrhUhCNST/3l3fK/ZfoAoGCCqGSM49
-AwEHoUQDQgAEiQmMfEH65ZWpSB2k+yR6DnnzjVDel24Hf6/hi4hX5BH0M+3WmaHx
-Pv//2GOE8xkVsLAYXHUbgc9YdCiI6wBvLg==
------END EC PRIVATE KEY-----"
-
-  @impl Config
-  def token_config do
-    [aud: "access_token", iss: "oauth", default_exp: access_token_expires_in()]
-    |> default_claims()
-  end
-
-  def grant(token) do
-    with {:ok, access_token, _claims} <- generate_and_sign(%{}, signer()),
-         {:ok, refresh_token, _claims} <- generate_and_sign(%{}, signer()) do
-      {:ok, %{token | access_token: access_token, refresh_token: refresh_token}}
-    end
-  end
-
-  defp access_token_expires_in, do: 3600
-
-  defp signer, do: Signer.create("ES256", %{"pem" => @key})
-end
-
-defmodule DreddTest.AuthCode do
-  @moduledoc """
-  OAuth Authorization Code
-  """
-  alias Dredd.OAuth
-  alias OAuth.{Application, Client}
-  alias Joken.{Config, Signer}
-
-  use Config
-
-  @key "-----BEGIN EC PRIVATE KEY-----
-MHcCAQEEIAx1PPWN8kop0mhViuH+Q41wrfbrhUhCNST/3l3fK/ZfoAoGCCqGSM49
-AwEHoUQDQgAEiQmMfEH65ZWpSB2k+yR6DnnzjVDel24Hf6/hi4hX5BH0M+3WmaHx
-Pv//2GOE8xkVsLAYXHUbgc9YdCiI6wBvLg==
------END EC PRIVATE KEY-----"
-
-  @impl Config
-  def token_config do
-    [aud: "auth_code", iss: "dredd", default_exp: 60]
-    |> default_claims()
-  end
-
-  @spec generate(
-          Client.t(),
-          Grant.code_challenge(),
-          Grant.challenge_method(),
-          Application.redirect_uri()
-        ) ::
-          {:ok, Grant.auth_code()} | {:error, atom()}
-  def generate(%Client{id: client_id}, challenge, "S256" = method, redirect_uri) do
-    with {:ok, token, _claims} <-
-           generate_and_sign(
-             %{
-               "xci" => client_id,
-               "xcm" => method,
-               "xcs" => challenge,
-               "xru" => redirect_uri
-             },
-             signer()
-           ),
-         do: token
-  end
-
-  def generate(_client, _challenge, _method, _redirect_uri),
-    do: {:error, :invalid_challenge_method}
-
-  def validate(%Client{id: client_id}, auth_code, verifier, redirect_uri) do
-    with {:ok,
-          %{"xci" => ^client_id, "xcm" => "S256", "xcs" => challenge, "xru" => ^redirect_uri}} <-
-           verify_and_validate(auth_code, signer()),
-         ^challenge <- generate_challenge(verifier) do
-      :ok
-    else
-      _ ->
-        {:error, :access_denied}
-    end
-  end
-
-  def generate_challenge(verifier), do: :sha256 |> :crypto.hash(verifier) |> Base.encode64()
-
-  defp signer, do: Signer.create("ES256", %{"pem" => @key})
-end
-
 defmodule DreddTest.Server do
   alias Dredd.OAuth.Grant.AuthorizationCode
-  alias DreddTest.AuthCode
 
   import DreddTest.Helper
 
@@ -160,26 +67,11 @@ defmodule DreddTest.Server do
   def client(_client_id), do: {:error, :invalid_client_id}
 
   @impl Dredd.Server
-  def authorize(
-        %AuthorizationCode{
-          code_challenge: challenge,
-          code_challenge_method: method,
-          redirect_uri: redirect_uri
-        },
-        client
-      ),
-      do: {:ok, AuthCode.generate(client, challenge, method, redirect_uri)}
-
+  def authorize(%AuthorizationCode{}, _client), do: {:ok, "good_auth_code"}
   def authorize(_grant, _client), do: {:error, :invalid_response_type}
 
   @impl Dredd.Server
-  def token(
-        %AuthorizationCode{code: code, code_verifier: verifier, redirect_uri: redirect_uri},
-        client
-      ) do
-    with :ok <- AuthCode.validate(client, code, verifier, redirect_uri),
-         do: {:ok, test_token()}
-  end
-
+  def token(%AuthorizationCode{code: "good_auth_code"}, _client), do: {:ok, test_token()}
+  def token(%AuthorizationCode{}, _client), do: {:error, :access_denied}
   def token(_grant, _token), do: {:error, :invalid_grant}
 end

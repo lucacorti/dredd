@@ -30,8 +30,7 @@ defmodule Dredd.MixProject do
       {:jason, "~> 1.0"},
       {:plug, "~> 1.0"},
       {:credo, "~> 1.0", only: [:dev], runtime: false},
-      {:dialyxir, "~> 1.0", only: [:dev], runtime: false},
-      {:joken, "~> 2.0", only: [:test]}
+      {:dialyxir, "~> 1.0", only: [:dev], runtime: false}
     ]
   end
 end

@@ -3,7 +3,7 @@ defmodule DreddTest do
   use Plug.Test
   doctest Dredd
 
-  alias DreddTest.{AuthCode, Server}
+  alias DreddTest.Server
   alias Plug.Conn
   alias Conn.{Query, Utils}
 
@@ -12,14 +12,12 @@ defmodule DreddTest do
   @test_client test_client()
   @redirect_uri "https://mytest/app"
   @code_verifier "well-formed-client-verifier-string-for-testing"
+
   @code_challenge_method "S256"
-  @code_challenge AuthCode.generate_challenge(@code_verifier)
-  @auth_code AuthCode.generate(
-               test_client(),
-               @code_challenge,
-               @code_challenge_method,
-               @redirect_uri
-             )
+  @code_challenge :sha256 |> :crypto.hash(@code_verifier) |> Base.encode64()
+
+  @auth_code "good_auth_code"
+
   @auth_code_authorize_params [
     response_type: "code",
     client_id: @test_client.id,
