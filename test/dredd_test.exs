@@ -104,12 +104,12 @@ defmodule DreddTest do
   end
 
   setup_all do
-    Plug.Cowboy.http(Server, [], port: 8000)
-
-    %{
-      auth_code_authorize_params: @auth_code_authorize_params,
-      auth_code_token_params: @auth_code_token_params
-    }
+    with {:ok, pid} <- Plug.Cowboy.http(Server, [], port: 8000),
+         do: %{
+           server: pid,
+           auth_code_authorize_params: @auth_code_authorize_params,
+           auth_code_token_params: @auth_code_token_params
+         }
   end
 
   describe "generic" do
