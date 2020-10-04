@@ -44,7 +44,19 @@ defmodule DreddTest do
       ssl: []
 
     @impl Dredd.Server
-    def authenticate(_client, "test_user", "test_password"), do: {:ok, "1"}
+    def auth_params(_client),
+      do: {
+        :ok,
+        [
+          username: [name: "Username", type: "text", required: true],
+          password: [name: "Password", type: "password", required: true]
+        ]
+      }
+
+    @impl Dredd.Server
+    def authenticate(_client, username: "test_user", password: "test_password"),
+      do: {:ok, "1"}
+
     def authenticate(_client, _username, _password), do: {:error, :access_denied}
 
     @impl Dredd.Server

@@ -7,18 +7,18 @@ defmodule Dredd.Server do
 
   @type t :: module()
   @type path :: String.t() | nil
-  @type username :: String.t()
-  @type password :: String.t()
+  @type auth_param_opts :: [default: String.t(), placeholder: String.t(), required: boolean()]
+  @type auth_params :: [{atom(), [{atom(), auth_param_opts()}]}]
   @type user_id :: String.t()
   @type authorize_error :: :unsupported_response_type | :unauthorized_client | :invalid_scope
   @type prepare_error :: :invalid_grant | :invalid_scope | :unauthorized_client
   @type token_error :: :invalid_grant | :invalid_scope | :unauthorized_client
 
-  @callback authenticate(Client.t(), username(), password()) ::
+  @callback auth_params(Client.t()) :: {:ok, auth_params()} | {:error, authorize_error()}
+  @callback authenticate(Client.t(), auth_params()) ::
               {:ok, user_id()} | {:error, :access_denied}
   @callback authorize(Grant.t(), Client.t()) ::
               {:ok, Grant.auth_code()} | {:error, authorize_error()}
-
   @callback prepare(Grant.t(), Client.t()) :: {:ok, Grant.t()} | {:error, prepare_error()}
   @callback token(Grant.t(), Client.t()) :: {:ok, Token.t()} | {:error, token_error()}
   @callback client(Client.id()) :: {:ok, Client.t()} | {:error, :invalid_client_id}

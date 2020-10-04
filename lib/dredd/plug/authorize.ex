@@ -34,8 +34,9 @@ defmodule Dredd.Plug.Authorize do
     %Conn{query_params: params, private: %{server: server}} = conn
 
     with {:ok, client} <- validate_client(server, params),
+         {:ok, auth_params} <- server.auth_params(client),
          {:ok, _grant} <- grant(client, params) do
-      render_auth_page(conn, client, :ok)
+      render_auth_page(conn, client, :ok, auth_params: auth_params)
     else
       {:error, reason} when reason in [:invalid_client_id, :invalid_redirect_uri] ->
         render_error(conn, reason)
@@ -60,26 +61,35 @@ defmodule Dredd.Plug.Authorize do
 
   defp action(
          %Conn{
-           body_params: %{
-             "action" => "login",
-             "username" => username,
-             "password" => password
-           }
+           body_params:
+             %{
+               "action" => "login"
+             } = params
          } = conn,
          server,
          client,
          false = _authenticated
        ) do
-    case server.authenticate(client, username, password) do
-      {:ok, user_id} ->
-        CSRFProtection.delete_csrf_token()
+    with {:ok, auth_params} <- server.auth_params(client),
+         auth_params =
+           Enum.map(auth_params, fn {param, _value} ->
+             {param, Map.get(params, Atom.to_string(param))}
+           end),
+         {:ok, user_id} <- server.authenticate(client, auth_params) do
+      CSRFProtection.delete_csrf_token()
 
-        conn
-        |> put_session(:user_id, user_id)
-        |> render_auth_page(client, :ok)
-
+      conn
+      |> put_session(:user_id, user_id)
+      |> render_auth_page(client, :ok, auth_params: auth_params)
+    else
       {:error, _reason} ->
-        render_auth_page(conn, client, :unauthorized, error: true)
+        case server.auth_params(client) do
+          {:ok, auth_params} ->
+            render_auth_page(conn, client, :unauthorized, auth_params: auth_params, error: true)
+
+          _ ->
+            render_auth_page(conn, client, :unauthorized, error: true)
+        end
     end
   end
 
@@ -112,13 +122,19 @@ defmodule Dredd.Plug.Authorize do
 
   defp action(
          %Conn{body_params: %{"action" => "logout"}} = conn,
-         _server,
+         server,
          client,
          true = _authenticated
        ) do
-    conn
-    |> delete_session(:user_id)
-    |> render_auth_page(client, :ok)
+    case server.auth_params(client) do
+      {:ok, auth_params} ->
+        conn
+        |> delete_session(:user_id)
+        |> render_auth_page(client, :ok, auth_params: auth_params)
+
+      {:error, _reason} ->
+        render_auth_page(conn, client, :unauthorized, error: true)
+    end
   end
 
   defp action(conn, _server, _client, _authenticated),
@@ -152,7 +168,7 @@ defmodule Dredd.Plug.Authorize do
            application: %Application{name: name, description: description, scopes: scopes}
          },
          status,
-         assigns \\ []
+         assigns
        ) do
     user_id = Conn.get_session(conn, :user_id)
 

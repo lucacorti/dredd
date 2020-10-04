@@ -51,6 +51,7 @@
       <form method="POST">
         <input type="hidden" name="_csrf_token" value="<%= @csrf_token %>"/>
         <input type="hidden" name="action" value="login"/>
+
         <p>
         <%= unless @error do %>
           Please login to <b><%= @server_name %></b> to verify your identity.
@@ -58,12 +59,12 @@
           <span class="error">Authentication failed</span>
         <% end %>
         </p>
+
+        <%= for {param, opts} <- @auth_params do %>
         <div>
-          <input type="text" name="username" placeholder="Username" />
+          <input type="<%= opts[:type] %>" name="<%= param %>" placeholder="<%= opts[:name] %>" />
         </div>
-        <div>
-          <input type="password" name="password" placeholder="Password" />
-        </div>
+        <% end %>
 
         <button type="submit" class="button login-button">Login</button>
       </form>
